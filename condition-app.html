@@ -728,12 +728,11 @@ async function loadPlayerDashboard(){
   document.getElementById('dash-content').classList.add('hidden');
   document.getElementById('dash-player-name').textContent = currentPlayerData.name||'';
   try {
-    const snap = await db.collection(`teams/${currentTeamId}/records`)
-      .where('playerId','==',currentPlayerId)
-      .orderBy('date','desc')
-      .limit(100)
-      .get();
-    playerRecords = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const snap = await db.collection(`teams/${currentTeamId}/records`).get();
+    playerRecords = snap.docs
+      .map(d=>({id:d.id,...d.data()}))
+      .filter(r=>r.playerId===currentPlayerId)
+      .sort((a,b)=>b.date.localeCompare(a.date));
     renderPlayerDashboard(playerRecords);
   } catch(e){
     showToast('データ取得エラー: '+e.message,'error');
@@ -921,15 +920,13 @@ async function submitRecord(){
   // Check existing record for same date
   showSpinner();
   try {
-    const existing = await db.collection(`teams/${teamId}/records`)
-      .where('playerId','==',pid)
-      .where('date','==',date)
-      .limit(1).get();
-    if(!existing.empty){
+    const allRecs = await db.collection(`teams/${teamId}/records`).get();
+    const existingDoc = allRecs.docs.find(d => d.data().playerId===pid && d.data().date===date);
+    if(existingDoc){
       hideSpinner();
       if(!confirm(`${date}のデータが既に存在します。上書きしますか？`)){return;}
       showSpinner();
-      await existing.docs[0].ref.update({type,time,rpe,srpe,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+      await existingDoc.ref.update({type,time,rpe,srpe,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
     } else {
       await db.collection(`teams/${teamId}/records`).add({
         playerId: pid,
@@ -1067,12 +1064,11 @@ async function showPlayerDetail(playerId){
   document.getElementById('detail-player-name').textContent = p ? p.name : '選手詳細';
   try {
     const since = subDays(todayStr(),28);
-    const snap = await db.collection(`teams/${currentTeamId}/records`)
-      .where('playerId','==',playerId)
-      .where('date','>=',since)
-      .orderBy('date','desc')
-      .get();
-    const records = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const allRecsSnap = await db.collection(`teams/${currentTeamId}/records`).get();
+    const records = allRecsSnap.docs
+      .map(d=>({id:d.id,...d.data()}))
+      .filter(r=>r.playerId===playerId && r.date>=since)
+      .sort((a,b)=>b.date.localeCompare(a.date));
     const today = todayStr();
     const srpeData = buildRecordSRPE(records);
     const acwr = calcACWR(srpeData, today);
