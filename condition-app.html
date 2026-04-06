@@ -652,16 +652,20 @@ async function loginPlayer(){
   showSpinner();
   try {
     const cred = await auth.signInWithEmailAndPassword(email, pw);
-    // find teamId from teamCode
-    const snap = await db.collection('teams').where('info.code','==',teamCode).limit(1).get();
-    if(snap.empty){ throw new Error('チームが見つかりません'); }
-    const teamDoc = snap.docs[0];
+    // find teamId from teamCode（インデックス不要：全チーム取得してクライアント側で絞り込み）
+    const snap = await db.collection('teams').get();
+    const teamDoc = snap.docs.find(d => {
+      const info = d.data().info;
+      return info && info.code === teamCode;
+    });
+    if(!teamDoc){ throw new Error('チームが見つかりません'); }
     currentTeamId = teamDoc.id;
     // find player doc
-    const pSnap = await db.collection(`teams/${currentTeamId}/players`).where('uid','==',cred.user.uid).limit(1).get();
-    if(pSnap.empty){ throw new Error('選手データが見つかりません'); }
-    currentPlayerData = {id: pSnap.docs[0].id, ...pSnap.docs[0].data()};
-    currentPlayerId = pSnap.docs[0].id;
+    const pSnap = await db.collection(`teams/${currentTeamId}/players`).get();
+    const pDoc = pSnap.docs.find(d => d.data().uid === cred.user.uid);
+    if(!pDoc){ throw new Error('選手データが見つかりません'); }
+    currentPlayerData = {id: pDoc.id, ...pDoc.data()};
+    currentPlayerId = pDoc.id;
     currentRole = 'player';
     currentUser = cred.user;
     hideSpinner();
@@ -1244,11 +1248,10 @@ async function saveTeamEdit(){
   if(!name||!code){ showToast('チーム名とコードは必須です','error'); return; }
   showSpinner();
   try {
-    // コード重複チェック（自分以外）
-    const existing = await db.collection('teams').where('info.code','==',code).limit(1).get();
-    if(!existing.empty && existing.docs[0].id !== teamId){
-      hideSpinner(); showToast('このチームコードは既に使用されています','error'); return;
-    }
+    // コード重複チェック（自分以外・インデックス不要）
+    const allTeams = await db.collection('teams').get();
+    const duplicate = allTeams.docs.find(d => d.id !== teamId && d.data().info && d.data().info.code === code);
+    if(duplicate){ hideSpinner(); showToast('このチームコードは既に使用されています','error'); return; }
     await db.collection('teams').doc(teamId).update({
       'info.name': name,
       'info.code': code,
@@ -1275,8 +1278,9 @@ async function createTeam(){
   // Check code uniqueness
   showSpinner();
   try {
-    const existing = await db.collection('teams').where('info.code','==',code).limit(1).get();
-    if(!existing.empty){ hideSpinner(); showToast('このチームコードは既に使用されています','error'); return; }
+    const allTeamsSnap = await db.collection('teams').get();
+    const codeExists = allTeamsSnap.docs.some(d => d.data().info && d.data().info.code === code);
+    if(codeExists){ hideSpinner(); showToast('このチームコードは既に使用されています','error'); return; }
     // Create team doc
     const teamRef = await db.collection('teams').add({
       info: { name, code, masterUid: currentUser.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp() }
