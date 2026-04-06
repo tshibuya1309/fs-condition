@@ -473,8 +473,8 @@ tr:nth-child(even) td{background:#f7f9fc}
     <h2>新規チーム作成</h2>
     <div class="input-group"><label>チーム名</label><input type="text" id="new-team-name" placeholder="○○高校サッカー部"></div>
     <div class="input-group"><label>チームコード（英数字）</label><input type="text" id="new-team-code" placeholder="team2024" autocapitalize="none"></div>
-    <div class="input-group"><label>スタッフメール</label><input type="email" id="new-staff-email" placeholder="staff@example.com" autocapitalize="none"></div>
-    <div class="input-group"><label>スタッフパスワード</label><input type="password" id="new-staff-pw" placeholder="パスワード（6文字以上）"></div>
+    <div class="input-group"><label>スタッフメール <span style="font-size:11px;color:var(--muted)">（任意・後から追加も可）</span></label><input type="email" id="new-staff-email" placeholder="staff@example.com" autocapitalize="none"></div>
+    <div class="input-group"><label>スタッフパスワード <span style="font-size:11px;color:var(--muted)">（任意）</span></label><input type="password" id="new-staff-pw" placeholder="パスワード（6文字以上）"></div>
     <button class="btn-primary" onclick="createTeam()">チームを作成</button>
   </div>
   <div class="card" style="padding:0;overflow:hidden">
@@ -1203,27 +1203,29 @@ async function createTeam(){
   const code = document.getElementById('new-team-code').value.trim().toLowerCase();
   const staffEmail = document.getElementById('new-staff-email').value.trim();
   const staffPw = document.getElementById('new-staff-pw').value;
-  if(!name||!code||!staffEmail||!staffPw){ showToast('すべての項目を入力してください','error'); return; }
-  if(staffPw.length<6){ showToast('パスワードは6文字以上','error'); return; }
+  if(!name||!code){ showToast('チーム名とチームコードは必須です','error'); return; }
+  if(staffEmail && staffPw.length<6){ showToast('スタッフパスワードは6文字以上','error'); return; }
+  if(staffEmail && !staffPw){ showToast('スタッフメールを入力した場合はパスワードも必要です','error'); return; }
   // Check code uniqueness
   showSpinner();
   try {
     const existing = await db.collection('teams').where('info.code','==',code).limit(1).get();
     if(!existing.empty){ hideSpinner(); showToast('このチームコードは既に使用されています','error'); return; }
-    // Create staff account
-    const sa = firebase.initializeApp(firebaseConfig,'createTeam_'+Date.now());
-    const saAuth = sa.auth();
-    const sc = await saAuth.createUserWithEmailAndPassword(staffEmail, staffPw);
-    const staffUid = sc.user.uid;
-    await sa.delete();
     // Create team doc
     const teamRef = await db.collection('teams').add({
       info: { name, code, masterUid: currentUser.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp() }
     });
-    // Create staff doc
-    await db.collection(`teams/${teamRef.id}/staff`).doc(staffUid).set({
-      role: 'staff', email: staffEmail, createdAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    // Create staff account (optional)
+    if(staffEmail && staffPw) {
+      const sa = firebase.initializeApp(firebaseConfig,'createTeam_'+Date.now());
+      const saAuth = sa.auth();
+      const sc = await saAuth.createUserWithEmailAndPassword(staffEmail, staffPw);
+      const staffUid = sc.user.uid;
+      await sa.delete();
+      await db.collection(`teams/${teamRef.id}/staff`).doc(staffUid).set({
+        role: 'staff', email: staffEmail, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
     hideSpinner();
     showToast(`チーム「${name}」を作成しました`,'success');
     document.getElementById('new-team-name').value='';
