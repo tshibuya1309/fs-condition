@@ -177,6 +177,27 @@ tr:nth-child(even) td{background:#f7f9fc}
 <div class="toast" id="toast"></div>
 <!-- Spinner -->
 <div class="spinner-overlay hidden" id="spinner"><div class="spinner"></div></div>
+<!-- パスワード再設定モーダル -->
+<div class="modal-overlay hidden" id="modal-reset-pw" onclick="if(event.target===this)closeResetPwModal()">
+  <div class="modal-box">
+    <div class="modal-title">🔑 パスワード再設定</div>
+    <input type="hidden" id="reset-player-id">
+    <input type="hidden" id="reset-player-number">
+    <input type="hidden" id="reset-player-email">
+    <div style="font-size:14px;color:var(--muted);margin-bottom:12px">
+      選手: <span id="reset-player-name" style="color:var(--primary);font-weight:700"></span>
+    </div>
+    <div class="input-group">
+      <label>新しいパスワード <span style="font-size:11px;color:var(--muted)">（6文字以上）</span></label>
+      <input type="password" id="reset-new-password" placeholder="新パスワードを入力">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn-secondary" style="flex:1" onclick="closeResetPwModal()">キャンセル</button>
+      <button class="btn-primary" style="flex:1;margin:0" onclick="doResetPlayerPassword()">再設定する</button>
+    </div>
+  </div>
+</div>
+
 <!-- チーム編集モーダル -->
 <div class="modal-overlay hidden" id="modal-edit-team" onclick="if(event.target===this)closeEditTeamModal()">
   <div class="modal-box">
@@ -1037,7 +1058,10 @@ function renderManagePlayerList(players){
         <div class="player-manage-name">${p.name||'--'}</div>
         <div class="player-manage-meta">#${p.number||'--'} ${p.position||''}</div>
       </div>
-      <button class="btn-danger" onclick="deletePlayer('${p.id}','${p.uid||''}','${(p.name||'').replace(/'/g,'')}')">削除</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn-secondary" style="font-size:12px;padding:6px 10px" onclick="openResetPwModal('${p.id}','${p.number||''}','${(p.name||'').replace(/'/g,'')}','${p.email||''}')">🔑 PW変更</button>
+        <button class="btn-danger" onclick="deletePlayer('${p.id}','${p.uid||''}','${(p.name||'').replace(/'/g,'')}')">削除</button>
+      </div>
     </div>
   `).join('');
 }
@@ -1144,6 +1168,62 @@ async function getTeamCode(teamId){
     const doc = await db.collection('teams').doc(teamId).get();
     return doc.data()&&doc.data().info&&doc.data().info.code;
   } catch(e){ return null; }
+}
+function openResetPwModal(playerId, number, name, email){
+  document.getElementById('reset-player-id').value = playerId;
+  document.getElementById('reset-player-number').value = number;
+  document.getElementById('reset-player-name').textContent = `#${number} ${name}`;
+  document.getElementById('reset-player-email').value = email;
+  document.getElementById('reset-new-password').value = '';
+  document.getElementById('modal-reset-pw').classList.remove('hidden');
+}
+function closeResetPwModal(){
+  document.getElementById('modal-reset-pw').classList.add('hidden');
+}
+async function doResetPlayerPassword(){
+  const playerId = document.getElementById('reset-player-id').value;
+  const email = document.getElementById('reset-player-email').value;
+  const pw = document.getElementById('reset-new-password').value;
+  if(pw.length < 6){ showToast('パスワードは6文字以上です','error'); return; }
+  showSpinner();
+  try {
+    // Try creating new auth account first (handles case where account doesn't exist)
+    const sa = firebase.initializeApp(firebaseConfig, 'resetPw_'+Date.now());
+    const saAuth = sa.auth();
+    let uid;
+    try {
+      const cred = await saAuth.createUserWithEmailAndPassword(email, pw);
+      uid = cred.user.uid;
+      await sa.delete();
+    } catch(createErr){
+      await sa.delete();
+      if(createErr.code === 'auth/email-already-in-use'){
+        // Auth account exists — sign in with secondary app to verify/update uid
+        const sa2 = firebase.initializeApp(firebaseConfig, 'resetPw2_'+Date.now());
+        try {
+          const cred2 = await sa2.auth().signInWithEmailAndPassword(email, pw);
+          uid = cred2.user.uid;
+          await sa2.delete();
+        } catch(signInErr){
+          await sa2.delete();
+          hideSpinner();
+          showToast('このアカウントは既に存在しますが、パスワードが違います。一度削除して再登録してください。','error');
+          return;
+        }
+      } else {
+        throw createErr;
+      }
+    }
+    // Update uid in Firestore player doc
+    await db.collection(`teams/${currentTeamId}/players`).doc(playerId).update({ uid, email });
+    hideSpinner();
+    closeResetPwModal();
+    showToast('パスワードを再設定しました。選手に新しいパスワードを伝えてください。','success');
+    await loadStaffPlayerList();
+  } catch(e){
+    hideSpinner();
+    showToast('エラー: '+e.message,'error');
+  }
 }
 async function deletePlayer(playerId, uid, name){
   if(!confirm(`${name} を削除しますか？記録も全て削除されます。`)){ return; }
