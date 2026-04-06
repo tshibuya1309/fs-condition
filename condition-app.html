@@ -805,7 +805,7 @@ function drawACWRChart(canvasId, labels, vals, isNew){
   };
   const opts = {
     responsive:true,
-    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!==null?'ACWR: '+c.raw.toFixed(2):'データなし'}},zoneBg},
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!==null?'ACWR: '+c.raw.toFixed(2):'データなし'}}},
     scales:{
       y:{min:Math.max(0,Math.floor((minV-0.3)*10)/10),max:2.5,grid:{color:'#eee'}},
       x:{grid:{display:false},ticks:{font:{size:10}}}
