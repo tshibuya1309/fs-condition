@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>F&S コンディション管理</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --primary:#0a3d62;--primary-dark:#072d4a;--primary-light:#e8f0f7;
+  --green:#00b894;--yellow:#f9ca24;--orange:#e17055;--red:#d63031;--blue:#4a90e2;
+  --bg:#f0f4f8;--card:#fff;--text:#1a2a3a;--muted:#6b7e92;--border:#dce4ed;
+}
+html,body{height:100%;font-family:'Hiragino Kaku Gothic ProN','Hiragino Sans','Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.screen{display:none;min-height:100vh;padding-bottom:80px}
+.screen.active{display:block}
+.header{background:var(--primary);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:700;flex:1}
+.header .sub{font-size:12px;opacity:.8;margin-right:8px}
+.btn-header{background:rgba(255,255,255,.18);border:none;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap}
+.btn-header:active{background:rgba(255,255,255,.3)}
+.card{background:var(--card);border-radius:14px;box-shadow:0 2px 10px rgba(10,61,98,.08);padding:16px;margin:12px}
+.card h2{font-size:14px;font-weight:700;color:var(--primary);margin-bottom:12px}
+.btn-primary{background:var(--primary);color:#fff;border:none;padding:12px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;width:100%}
+.btn-primary:active{background:var(--primary-dark)}
+.btn-primary:disabled{opacity:.5}
+.input-group{margin-bottom:14px}
+.input-group label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.input-group input,.input-group select{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;background:#fff;color:var(--text);outline:none}
+.input-group input:focus,.input-group select:focus{border-color:var(--primary)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2a3a;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;max-width:320px;text-align:center}
+.toast.show{opacity:1}
+.toast.success{background:#00b894}
+.toast.error{background:#d63031}
+.toast.warn{background:#e17055}
+.spinner-overlay{position:fixed;inset:0;background:rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;z-index:9998}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+
+/* Login */
+#screen-login{display:flex;flex-direction:column;justify-content:center;min-height:100vh;padding:0}
+.login-logo{text-align:center;padding:32px 16px 16px}
+.login-logo h1{font-size:24px;font-weight:800;color:var(--primary)}
+.login-logo p{font-size:13px;color:var(--muted);margin-top:4px}
+.tab-bar{display:flex;background:var(--primary-light);border-radius:10px;margin:0 16px 16px;padding:3px}
+.tab-bar button{flex:1;padding:8px;border:none;background:transparent;font-size:13px;font-weight:600;color:var(--muted);border-radius:8px;cursor:pointer}
+.tab-bar button.active{background:#fff;color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.login-card{margin:0 16px;background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(10,61,98,.08);padding:20px}
+
+/* ACWR Gauge */
+.acwr-gauge{margin:12px}
+.gauge-wrap{position:relative;height:32px;background:#eee;border-radius:16px;overflow:visible;margin:8px 0 24px}
+.gauge-track{position:absolute;inset:0;border-radius:16px;overflow:hidden;display:flex}
+.gauge-seg{height:100%}
+.gauge-pointer{position:absolute;top:-6px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:14px solid #1a2a3a;transform:translateX(-50%);transition:left .5s ease}
+.gauge-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px}
+.acwr-value{text-align:center;font-size:36px;font-weight:800;margin:8px 0 4px}
+.acwr-label{text-align:center;font-size:13px;color:var(--muted)}
+.zone-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;margin:0 auto;display:block;width:fit-content}
+
+/* Stats bar */
+.stats-bar{display:flex;gap:8px;padding:12px 12px 0;overflow-x:auto}
+.stat-box{background:#fff;border-radius:10px;padding:10px 12px;min-width:72px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.07);flex:1}
+.stat-box .stat-num{font-size:22px;font-weight:800}
+.stat-box .stat-lbl{font-size:10px;color:var(--muted);margin-top:2px}
+.stat-box.red .stat-num{color:var(--red)}
+.stat-box.orange .stat-num{color:var(--orange)}
+.stat-box.green .stat-num{color:var(--green)}
+.stat-box.blue .stat-num{color:var(--blue)}
+
+/* Player List */
+.player-list{margin:12px;background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(10,61,98,.08);overflow:hidden}
+.player-item{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.player-item:last-child{border-bottom:none}
+.player-item:active{background:var(--primary-light)}
+.status-dot{width:10px;height:10px;border-radius:50%;margin-right:10px;flex-shrink:0}
+.player-info{flex:1}
+.player-name{font-size:14px;font-weight:700}
+.player-meta{font-size:11px;color:var(--muted)}
+.player-acwr{font-size:16px;font-weight:800;margin-left:8px}
+.player-acwr.green{color:var(--green)}
+.player-acwr.yellow{color:var(--yellow)}
+.player-acwr.orange{color:var(--orange)}
+.player-acwr.red{color:var(--red)}
+.player-acwr.blue{color:var(--blue)}
+.player-acwr.gray{color:var(--muted)}
+
+/* Filter tabs */
+.filter-tabs{display:flex;gap:6px;padding:8px 12px;overflow-x:auto}
+.filter-tab{padding:5px 12px;border-radius:20px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.filter-tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* Search */
+.search-bar{margin:0 12px 8px;position:relative}
+.search-bar input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;background:#fff;outline:none}
+.search-bar input:focus{border-color:var(--primary)}
+.search-bar::before{content:"🔍";position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px}
+
+/* Input screen */
+.date-bar{background:var(--primary-light);padding:10px 16px;text-align:center;font-weight:700;color:var(--primary);font-size:15px}
+.type-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.type-btn{padding:14px 8px;border:2px solid var(--border);border-radius:12px;background:#fff;font-size:13px;font-weight:700;cursor:pointer;text-align:center;color:var(--text)}
+.type-btn.active{border-color:var(--primary);background:var(--primary-light);color:var(--primary)}
+.type-btn:active{background:var(--primary-light)}
+.rpe-display{text-align:center;margin:8px 0}
+.rpe-num{font-size:56px;font-weight:900;color:var(--primary);line-height:1}
+.rpe-lbl{font-size:14px;color:var(--muted);margin-top:4px}
+input[type=range]{width:100%;accent-color:var(--primary);margin:8px 0}
+.footer-btn{position:fixed;bottom:0;left:0;right:0;padding:12px 16px;background:#fff;border-top:1px solid var(--border);z-index:50}
+
+/* Table */
+.table-wrap{overflow-x:auto;margin:12px}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+th{background:var(--primary);color:#fff;font-size:11px;padding:8px 6px;text-align:center}
+td{font-size:12px;padding:8px 6px;text-align:center;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:nth-child(even) td{background:#f7f9fc}
+
+/* Bottom tabs */
+.bottom-tabs{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--border);display:flex;z-index:100}
+.bottom-tab{flex:1;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--muted);font-size:10px;font-weight:600;border:none;background:transparent}
+.bottom-tab.active{color:var(--primary)}
+.bottom-tab .icon{font-size:20px}
+
+/* Skeleton */
+.skeleton{background:linear-gradient(90deg,#eee 25%,#ddd 50%,#eee 75%);background-size:200% 100%;animation:shimmer 1.2s infinite;border-radius:6px}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.sk-line{height:14px;margin:6px 0}
+.sk-card{height:80px;margin:12px}
+
+/* Manage */
+.manage-form{margin:12px;background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(10,61,98,.08);padding:16px}
+.manage-form h2{font-size:14px;font-weight:700;color:var(--primary);margin-bottom:12px}
+.btn-secondary{background:#fff;color:var(--primary);border:1.5px solid var(--primary);padding:10px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;width:100%}
+.btn-danger{background:var(--red);color:#fff;border:none;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer}
+.player-manage-item{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+.player-manage-item:last-child{border-bottom:none}
+.player-manage-info{flex:1}
+.player-manage-name{font-size:14px;font-weight:700}
+.player-manage-meta{font-size:11px;color:var(--muted)}
+.csv-area{width:100%;height:80px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;font-family:monospace;resize:vertical}
+
+/* Master */
+.team-item{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.team-item:last-child{border-bottom:none}
+.team-item:active{background:var(--primary-light)}
+.team-info{flex:1}
+.team-name{font-size:14px;font-weight:700}
+.team-meta{font-size:11px;color:var(--muted)}
+.chevron{color:var(--muted);font-size:18px}
+
+/* Settings */
+.settings-section{margin:12px;background:#fff;border-radius:14px;box-shadow:0 2px 10px rgba(10,61,98,.08);overflow:hidden}
+.settings-item{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);cursor:pointer}
+.settings-item:last-child{border-bottom:none}
+.settings-item:active{background:var(--primary-light)}
+.settings-item .icon{margin-right:12px;font-size:18px}
+.settings-item .label{flex:1;font-size:14px;font-weight:600}
+.settings-item .chevron{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+<!-- Spinner -->
+<div class="spinner-overlay hidden" id="spinner"><div class="spinner"></div></div>
+
+<!-- ===== LOGIN ===== -->
+<div class="screen active" id="screen-login">
+  <div class="login-logo">
+    <h1>F&S Performance</h1>
+    <p>コンディション管理システム</p>
+  </div>
+  <div class="tab-bar">
+    <button class="active" id="tab-player" onclick="switchLoginTab('player')">選手</button>
+    <button id="tab-staff" onclick="switchLoginTab('staff')">スタッフ / 管理者</button>
+  </div>
+  <!-- Player Login -->
+  <div class="login-card" id="login-player-form">
+    <div class="input-group">
+      <label>チームコード</label>
+      <input type="text" id="player-team-code" placeholder="例: fs2024" autocomplete="off" autocapitalize="none">
+    </div>
+    <div class="input-group">
+      <label>選手ID（背番号）</label>
+      <input type="text" id="player-id" placeholder="例: 10" inputmode="numeric">
+    </div>
+    <div class="input-group">
+      <label>パスワード</label>
+      <input type="password" id="player-password" placeholder="パスワード">
+    </div>
+    <button class="btn-primary" onclick="loginPlayer()">ログイン</button>
+  </div>
+  <!-- Staff Login -->
+  <div class="login-card hidden" id="login-staff-form">
+    <div class="input-group">
+      <label>メールアドレス</label>
+      <input type="email" id="staff-email" placeholder="email@example.com" autocapitalize="none">
+    </div>
+    <div class="input-group">
+      <label>パスワード</label>
+      <input type="password" id="staff-password" placeholder="パスワード">
+    </div>
+    <button class="btn-primary" onclick="loginStaff()">ログイン</button>
+  </div>
+</div>
+
+<!-- ===== PLAYER DASHBOARD ===== -->
+<div class="screen" id="screen-dashboard">
+  <div class="header">
+    <h1>コンディション確認</h1>
+    <span class="sub" id="dash-player-name"></span>
+    <button class="btn-header" onclick="showInputScreen()">＋入力</button>
+    <button class="btn-header" style="margin-left:6px" onclick="logout()">ログアウト</button>
+  </div>
+  <div id="dash-skeleton">
+    <div class="sk-card skeleton"></div>
+    <div class="sk-card skeleton"></div>
+    <div class="sk-card skeleton"></div>
+  </div>
+  <div id="dash-content" class="hidden">
+    <!-- ACWR Gauge -->
+    <div class="card" id="acwr-card">
+      <h2>ACWR（急慢性負荷比率）</h2>
+      <div class="acwr-value" id="acwr-value">--</div>
+      <div class="acwr-label" id="acwr-label-text">データ不足</div>
+      <span class="zone-badge" id="acwr-zone-badge">--</span>
+      <div class="gauge-wrap" style="margin-top:16px">
+        <div class="gauge-track">
+          <div class="gauge-seg" style="width:20%;background:#4a90e2"></div>
+          <div class="gauge-seg" style="width:33%;background:#00b894"></div>
+          <div class="gauge-seg" style="width:13%;background:#e17055"></div>
+          <div class="gauge-seg" style="width:34%;background:#d63031"></div>
+        </div>
+        <div class="gauge-pointer" id="gauge-pointer" style="left:0%"></div>
+      </div>
+      <div class="gauge-labels">
+        <span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0+</span>
+      </div>
+    </div>
+    <!-- ACWR Chart -->
+    <div class="card">
+      <h2>ACWR推移（過去14日）</h2>
+      <canvas id="acwr-chart" height="160"></canvas>
+    </div>
+    <!-- sRPE Chart -->
+    <div class="card">
+      <h2>sRPE推移（過去14日）</h2>
+      <canvas id="srpe-chart" height="140"></canvas>
+    </div>
+    <!-- Record Table -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>日付</th><th>種類</th><th>時間</th><th>RPE</th><th>sRPE</th><th>ACWR</th>
+          </tr>
+        </thead>
+        <tbody id="record-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== INPUT ===== -->
+<div class="screen" id="screen-input">
+  <div class="header">
+    <h1>記録入力</h1>
+    <span class="sub" id="input-player-name"></span>
+    <button class="btn-header" onclick="goBack()">← 戻る</button>
+  </div>
+  <div class="date-bar" id="input-date-bar">2024年1月1日（月）</div>
+  <div class="card">
+    <div class="input-group">
+      <label>日付</label>
+      <input type="date" id="input-date">
+    </div>
+    <div class="input-group">
+      <label>参加種類</label>
+      <div class="type-grid">
+        <button class="type-btn" data-type="full" onclick="selectType('full')">⚽ フル参加</button>
+        <button class="type-btn" data-type="rehab" onclick="selectType('rehab')">🏥 リハビリ組</button>
+        <button class="type-btn" data-type="partial" onclick="selectType('partial')">⚡ 部分参加</button>
+        <button class="type-btn" data-type="early" onclick="selectType('early')">🚪 途中離脱</button>
+      </div>
+    </div>
+    <div class="input-group">
+      <label>活動時間</label>
+      <select id="input-time">
+        <option value="">選択してください</option>
+        <option value="30">30分</option>
+        <option value="60">60分</option>
+        <option value="90">90分</option>
+        <option value="120">120分</option>
+        <option value="150">150分</option>
+        <option value="180">180分</option>
+        <option value="210">210分</option>
+        <option value="240">240分</option>
+        <option value="270">270分</option>
+        <option value="300">300分</option>
+      </select>
+    </div>
+    <div class="input-group">
+      <label>RPE（自覚的運動強度）: <span id="rpe-val-label">0</span></label>
+      <div class="rpe-display">
+        <div class="rpe-num" id="rpe-num">0</div>
+        <div class="rpe-lbl" id="rpe-lbl">安静</div>
+      </div>
+      <input type="range" id="rpe-slider" min="0" max="10" step="1" value="0" oninput="updateRPE(this.value)">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
+        <span>0</span><span>5</span><span>10</span>
+      </div>
+    </div>
+    <div style="background:var(--primary-light);border-radius:8px;padding:10px;font-size:12px;color:var(--primary)">
+      sRPE = RPE × 時間 = <strong id="srpe-preview">0</strong>
+    </div>
+  </div>
+  <div class="footer-btn">
+    <button class="btn-primary" id="submit-btn" onclick="submitRecord()">送信する</button>
+  </div>
+</div>
+
+<!-- ===== STAFF DASHBOARD ===== -->
+<div class="screen" id="screen-staff">
+  <div class="header">
+    <h1>スタッフ管理画面</h1>
+    <span class="sub" id="staff-team-name"></span>
+    <button class="btn-header" onclick="logout()">ログアウト</button>
+  </div>
+  <!-- Tab content -->
+  <div id="staff-tab-list">
+    <div class="stats-bar" id="staff-stats-bar">
+      <div class="stat-box"><div class="stat-num" id="stat-total">-</div><div class="stat-lbl">登録</div></div>
+      <div class="stat-box red"><div class="stat-num" id="stat-red">-</div><div class="stat-lbl">警告</div></div>
+      <div class="stat-box orange"><div class="stat-num" id="stat-orange">-</div><div class="stat-lbl">注意</div></div>
+      <div class="stat-box green"><div class="stat-num" id="stat-green">-</div><div class="stat-lbl">適正</div></div>
+      <div class="stat-box blue"><div class="stat-num" id="stat-no-input">-</div><div class="stat-lbl">未入力</div></div>
+    </div>
+    <div class="filter-tabs">
+      <button class="filter-tab active" data-filter="all" onclick="setFilter('all')">すべて</button>
+      <button class="filter-tab" data-filter="danger" onclick="setFilter('danger')">警告</button>
+      <button class="filter-tab" data-filter="caution" onclick="setFilter('caution')">注意</button>
+      <button class="filter-tab" data-filter="optimal" onclick="setFilter('optimal')">適正</button>
+      <button class="filter-tab" data-filter="low" onclick="setFilter('low')">負荷不足</button>
+      <button class="filter-tab" data-filter="noinput" onclick="setFilter('noinput')">未入力</button>
+    </div>
+    <div class="search-bar">
+      <input type="text" id="player-search" placeholder="選手名・番号で検索" oninput="filterPlayers()">
+    </div>
+    <button class="btn-secondary" style="margin:0 12px 8px;width:calc(100% - 24px)" onclick="exportCSV()">CSVエクスポート</button>
+    <div class="player-list" id="staff-player-list">
+      <div style="padding:20px;text-align:center;color:var(--muted)">読み込み中...</div>
+    </div>
+  </div>
+  <div id="staff-tab-manage" class="hidden">
+    <div class="manage-form">
+      <h2>選手を追加</h2>
+      <div class="input-group"><label>背番号</label><input type="text" id="new-number" placeholder="10" inputmode="numeric"></div>
+      <div class="input-group"><label>氏名</label><input type="text" id="new-name" placeholder="山田太郎"></div>
+      <div class="input-group"><label>ポジション</label>
+        <select id="new-position">
+          <option value="GK">GK</option><option value="DF">DF</option>
+          <option value="MF">MF</option><option value="FW">FW</option>
+        </select>
+      </div>
+      <div class="input-group"><label>初期パスワード</label><input type="password" id="new-password" placeholder="パスワード（6文字以上）"></div>
+      <button class="btn-primary" onclick="addPlayer()" style="margin-bottom:12px">選手を追加</button>
+    </div>
+    <div class="manage-form">
+      <h2>一括CSV登録</h2>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">形式: 背番号,氏名,ポジション,初期パスワード（1行1選手）</p>
+      <textarea class="csv-area" id="bulk-csv" placeholder="10,山田太郎,FW,password123
+11,鈴木次郎,MF,password456"></textarea>
+      <button class="btn-secondary" onclick="bulkImport()" style="margin-top:8px">一括登録</button>
+    </div>
+    <div class="manage-form" style="padding:0;overflow:hidden">
+      <h2 style="padding:14px 16px 10px">登録済み選手</h2>
+      <div id="manage-player-list">
+        <div style="padding:12px;text-align:center;color:var(--muted)">読み込み中...</div>
+      </div>
+    </div>
+  </div>
+  <div id="staff-tab-settings" class="hidden">
+    <div class="settings-section">
+      <div class="settings-item" onclick="showChangePassword()">
+        <span class="icon">🔑</span><span class="label">パスワード変更</span><span class="chevron">›</span>
+      </div>
+      <div class="settings-item" onclick="exportAllCSV()">
+        <span class="icon">📥</span><span class="label">全データCSVバックアップ</span><span class="chevron">›</span>
+      </div>
+    </div>
+    <div class="manage-form hidden" style="margin-top:12px" id="change-password-form">
+      <h2>パスワード変更</h2>
+      <div class="input-group"><label>新しいパスワード</label><input type="password" id="new-pw-1" placeholder="新しいパスワード"></div>
+      <div class="input-group"><label>確認</label><input type="password" id="new-pw-2" placeholder="もう一度入力"></div>
+      <button class="btn-primary" onclick="changePassword()">変更する</button>
+    </div>
+  </div>
+  <!-- Bottom tabs -->
+  <div class="bottom-tabs">
+    <button class="bottom-tab active" id="btab-list" onclick="switchStaffTab('list')">
+      <span class="icon">👥</span><span>選手一覧</span>
+    </button>
+    <button class="bottom-tab" id="btab-manage" onclick="switchStaffTab('manage')">
+      <span class="icon">⚙️</span><span>選手管理</span>
+    </button>
+    <button class="bottom-tab" id="btab-settings" onclick="switchStaffTab('settings')">
+      <span class="icon">🔧</span><span>設定</span>
+    </button>
+  </div>
+</div>
+
+<!-- ===== DETAIL (Staff) ===== -->
+<div class="screen" id="screen-detail">
+  <div class="header">
+    <h1 id="detail-player-name">選手詳細</h1>
+    <button class="btn-header" onclick="showInputForPlayer()">＋入力</button>
+    <button class="btn-header" style="margin-left:6px" onclick="backToStaff()">← 戻る</button>
+  </div>
+  <div id="detail-skeleton">
+    <div class="sk-card skeleton"></div>
+    <div class="sk-card skeleton"></div>
+  </div>
+  <div id="detail-content" class="hidden">
+    <div class="card">
+      <h2>ACWR</h2>
+      <div class="acwr-value" id="detail-acwr-value">--</div>
+      <div class="acwr-label" id="detail-acwr-label">データ不足</div>
+      <span class="zone-badge" id="detail-zone-badge">--</span>
+      <div class="gauge-wrap" style="margin-top:16px">
+        <div class="gauge-track">
+          <div class="gauge-seg" style="width:20%;background:#4a90e2"></div>
+          <div class="gauge-seg" style="width:33%;background:#00b894"></div>
+          <div class="gauge-seg" style="width:13%;background:#e17055"></div>
+          <div class="gauge-seg" style="width:34%;background:#d63031"></div>
+        </div>
+        <div class="gauge-pointer" id="detail-gauge-pointer" style="left:0%"></div>
+      </div>
+      <div class="gauge-labels">
+        <span>0</span><span>0.8</span><span>1.3</span><span>1.5</span><span>2.0+</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>ACWR推移（過去14日）</h2>
+      <canvas id="detail-acwr-chart" height="160"></canvas>
+    </div>
+    <div class="card">
+      <h2>sRPE推移（過去14日）</h2>
+      <canvas id="detail-srpe-chart" height="140"></canvas>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>日付</th><th>種類</th><th>時間</th><th>RPE</th><th>sRPE</th><th>ACWR</th></tr></thead>
+        <tbody id="detail-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MASTER ===== -->
+<div class="screen" id="screen-master">
+  <div class="header">
+    <h1>マスター管理</h1>
+    <button class="btn-header" onclick="logout()">ログアウト</button>
+  </div>
+  <div class="card">
+    <h2>新規チーム作成</h2>
+    <div class="input-group"><label>チーム名</label><input type="text" id="new-team-name" placeholder="○○高校サッカー部"></div>
+    <div class="input-group"><label>チームコード（英数字）</label><input type="text" id="new-team-code" placeholder="team2024" autocapitalize="none"></div>
+    <div class="input-group"><label>スタッフメール</label><input type="email" id="new-staff-email" placeholder="staff@example.com" autocapitalize="none"></div>
+    <div class="input-group"><label>スタッフパスワード</label><input type="password" id="new-staff-pw" placeholder="パスワード（6文字以上）"></div>
+    <button class="btn-primary" onclick="createTeam()">チームを作成</button>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <h2 style="padding:14px 16px 10px">チーム一覧</h2>
+    <div id="master-team-list">
+      <div style="padding:12px;text-align:center;color:var(--muted)">読み込み中...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== Firebase Init =====
+const firebaseConfig = {
+  apiKey: "AIzaSyDmCzarHswXJc3z7P5w9gcX_XlPkCFJiao",
+  authDomain: "fs-condition-app.firebaseapp.com",
+  projectId: "fs-condition-app",
+  storageBucket: "fs-condition-app.firebasestorage.app",
+  messagingSenderId: "557720309490",
+  appId: "1:557720309490:web:0373e364780eb931d24a6b"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ===== State =====
+let currentUser = null;
+let currentRole = null; // 'player' | 'staff' | 'master'
+let currentTeamId = null;
+let currentPlayerId = null;
+let currentPlayerData = null;
+let allPlayersData = [];
+let playerRecords = [];
+let staffFilter = 'all';
+let acwrChartInst = null;
+let srpeChartInst = null;
+let detailAcwrChart = null;
+let detailSrpeChart = null;
+let detailPlayerId = null;
+let inputTargetPlayerId = null;
+let inputTargetPlayerName = null;
+let currentScreen = 'screen-login';
+let changePasswordFormShown = false;
+
+// ===== Borg CR10 =====
+const borgLabels = ['安静','非常に弱い','弱い','やや弱い','中程度','強い','強い','かなり強い','かなり強い','非常に強い','最大'];
+const typeLabels = {full:'フル参加', rehab:'リハビリ組', partial:'部分参加', early:'途中離脱'};
+
+// ===== Utils =====
+function showToast(msg, type=''){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>{ t.className='toast'; }, 3000);
+}
+function showSpinner(){ document.getElementById('spinner').classList.remove('hidden'); }
+function hideSpinner(){ document.getElementById('spinner').classList.add('hidden'); }
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  currentScreen = id;
+}
+function goBack(){
+  if(currentRole==='staff'){ showScreen('screen-staff'); }
+  else { showScreen('screen-dashboard'); }
+}
+function firebaseErrorMsg(code){
+  const map = {
+    'auth/wrong-password':'パスワードが間違っています',
+    'auth/user-not-found':'アカウントが見つかりません',
+    'auth/invalid-email':'メールアドレスの形式が正しくありません',
+    'auth/email-already-in-use':'このメールアドレスは既に使用されています',
+    'auth/weak-password':'パスワードは6文字以上にしてください',
+    'auth/too-many-requests':'しばらく待ってから再試行してください',
+    'auth/network-request-failed':'ネットワーク接続を確認してください',
+    'auth/invalid-credential':'メールアドレスまたはパスワードが正しくありません',
+  };
+  return map[code] || 'エラーが発生しました: ' + code;
+}
+function formatDate(dateStr){
+  const d = new Date(dateStr+'T00:00:00');
+  const days=['日','月','火','水','木','金','土'];
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
+}
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function addDays(dateStr, n){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function subDays(dateStr, n){ return addDays(dateStr, -n); }
+
+// ===== ACWR Calc =====
+function calcACWR(records, refDate){
+  // records: array of {date, srpe}
+  const byDate = {};
+  records.forEach(r=>{ byDate[r.date] = (byDate[r.date]||0) + r.srpe; });
+  let acute = 0;
+  for(let i=0;i<7;i++){
+    const d = subDays(refDate, i);
+    acute += byDate[d] || 0;
+  }
+  let chronic = 0;
+  for(let i=0;i<28;i++){
+    const d = subDays(refDate, i);
+    chronic += byDate[d] || 0;
+  }
+  chronic = chronic / 4;
+  if(chronic === 0) return null;
+  return Math.round((acute / chronic) * 100) / 100;
+}
+function acwrZone(v){
+  if(v===null||v===undefined) return {label:'データ不足',color:'#aaa',cls:'gray'};
+  if(v < 0.8) return {label:'負荷不足',color:'#4a90e2',cls:'blue'};
+  if(v < 1.3) return {label:'適正',color:'#00b894',cls:'green'};
+  if(v < 1.5) return {label:'注意',color:'#e17055',cls:'orange'};
+  return {label:'警告',color:'#d63031',cls:'red'};
+}
+function gaugePos(v){
+  if(v===null) return 0;
+  // 0-0.8 => 0-20%, 0.8-1.3 => 20-53%, 1.3-1.5 => 53-66%, 1.5-2.0+ => 66-100%
+  if(v <= 0) return 0;
+  if(v < 0.8) return (v/0.8)*20;
+  if(v < 1.3) return 20 + ((v-0.8)/0.5)*33;
+  if(v < 1.5) return 53 + ((v-1.3)/0.2)*13;
+  if(v < 2.0) return 66 + ((v-1.5)/0.5)*34;
+  return 100;
+}
+function buildRecordSRPE(records){
+  return records.map(r=>({date:r.date, srpe:r.srpe||((r.rpe||0)*(r.time||0))}));
+}
+
+// ===== Login =====
+function switchLoginTab(tab){
+  document.getElementById('tab-player').classList.toggle('active', tab==='player');
+  document.getElementById('tab-staff').classList.toggle('active', tab==='staff');
+  document.getElementById('login-player-form').classList.toggle('hidden', tab!=='player');
+  document.getElementById('login-staff-form').classList.toggle('hidden', tab!=='staff');
+}
+async function loginPlayer(){
+  const teamCode = document.getElementById('player-team-code').value.trim().toLowerCase();
+  const playerId = document.getElementById('player-id').value.trim();
+  const pw = document.getElementById('player-password').value;
+  if(!teamCode||!playerId||!pw){ showToast('すべての項目を入力してください','error'); return; }
+  const email = `p${playerId}_${teamCode}@fsapp.internal`;
+  showSpinner();
+  try {
+    const cred = await auth.signInWithEmailAndPassword(email, pw);
+    // find teamId from teamCode
+    const snap = await db.collection('teams').where('info.code','==',teamCode).limit(1).get();
+    if(snap.empty){ throw new Error('チームが見つかりません'); }
+    const teamDoc = snap.docs[0];
+    currentTeamId = teamDoc.id;
+    // find player doc
+    const pSnap = await db.collection(`teams/${currentTeamId}/players`).where('uid','==',cred.user.uid).limit(1).get();
+    if(pSnap.empty){ throw new Error('選手データが見つかりません'); }
+    currentPlayerData = {id: pSnap.docs[0].id, ...pSnap.docs[0].data()};
+    currentPlayerId = pSnap.docs[0].id;
+    currentRole = 'player';
+    currentUser = cred.user;
+    hideSpinner();
+    await loadPlayerDashboard();
+  } catch(e){
+    hideSpinner();
+    showToast(e.message||firebaseErrorMsg(e.code), 'error');
+  }
+}
+async function loginStaff(){
+  const email = document.getElementById('staff-email').value.trim();
+  const pw = document.getElementById('staff-password').value;
+  if(!email||!pw){ showToast('メールとパスワードを入力してください','error'); return; }
+  showSpinner();
+  try {
+    const cred = await auth.signInWithEmailAndPassword(email, pw);
+    currentUser = cred.user;
+    // Check master
+    const masterSnap = await db.collection('admins').doc(cred.user.uid).get();
+    if(masterSnap.exists){
+      currentRole = 'master';
+      hideSpinner();
+      await loadMasterDashboard();
+      return;
+    }
+    // Find team staff
+    const teamsSnap = await db.collection('teams').get();
+    let foundTeam = null;
+    for(const tdoc of teamsSnap.docs){
+      const staffDoc = await db.collection(`teams/${tdoc.id}/staff`).doc(cred.user.uid).get();
+      if(staffDoc.exists){ foundTeam = tdoc; break; }
+    }
+    if(!foundTeam){ throw new Error('スタッフ権限が見つかりません'); }
+    currentTeamId = foundTeam.id;
+    currentRole = 'staff';
+    hideSpinner();
+    await loadStaffDashboard();
+  } catch(e){
+    hideSpinner();
+    showToast(e.message||firebaseErrorMsg(e.code), 'error');
+  }
+}
+async function logout(){
+  try {
+    await auth.signOut();
+  } catch(e){}
+  currentUser=null; currentRole=null; currentTeamId=null; currentPlayerId=null;
+  currentPlayerData=null; allPlayersData=[]; playerRecords=[];
+  if(acwrChartInst){ acwrChartInst.destroy(); acwrChartInst=null; }
+  if(srpeChartInst){ srpeChartInst.destroy(); srpeChartInst=null; }
+  if(detailAcwrChart){ detailAcwrChart.destroy(); detailAcwrChart=null; }
+  if(detailSrpeChart){ detailSrpeChart.destroy(); detailSrpeChart=null; }
+  showScreen('screen-login');
+}
+
+// ===== Player Dashboard =====
+async function loadPlayerDashboard(){
+  showScreen('screen-dashboard');
+  document.getElementById('dash-skeleton').classList.remove('hidden');
+  document.getElementById('dash-content').classList.add('hidden');
+  document.getElementById('dash-player-name').textContent = currentPlayerData.name||'';
+  try {
+    const snap = await db.collection(`teams/${currentTeamId}/records`)
+      .where('playerId','==',currentPlayerId)
+      .orderBy('date','desc')
+      .limit(100)
+      .get();
+    playerRecords = snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderPlayerDashboard(playerRecords);
+  } catch(e){
+    showToast('データ取得エラー: '+e.message,'error');
+  }
+  document.getElementById('dash-skeleton').classList.add('hidden');
+  document.getElementById('dash-content').classList.remove('hidden');
+}
+function renderPlayerDashboard(records){
+  const today = todayStr();
+  const srpeData = buildRecordSRPE(records);
+  const acwr = calcACWR(srpeData, today);
+  const zone = acwrZone(acwr);
+  document.getElementById('acwr-value').textContent = acwr!==null ? acwr.toFixed(2) : '--';
+  document.getElementById('acwr-value').style.color = zone.color;
+  document.getElementById('acwr-label-text').textContent = zone.label;
+  const badge = document.getElementById('acwr-zone-badge');
+  badge.textContent = zone.label;
+  badge.style.background = zone.color;
+  document.getElementById('gauge-pointer').style.left = gaugePos(acwr)+'%';
+  // Build 14-day chart data
+  const labels=[], acwrVals=[], srpeVals=[];
+  for(let i=13;i>=0;i--){
+    const d = subDays(today, i);
+    labels.push(d.slice(5));
+    acwrVals.push(calcACWR(srpeData, d));
+    const dayS = srpeData.find(r=>r.date===d);
+    srpeVals.push(dayS ? dayS.srpe : 0);
+  }
+  drawACWRChart('acwr-chart', labels, acwrVals, true);
+  drawSRPEChart('srpe-chart', labels, srpeVals, true);
+  // Table (last 14)
+  renderRecordTable('record-table-body', records.slice(0,14), srpeData);
+}
+function drawACWRChart(canvasId, labels, vals, isNew){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const zoneBgPlugin = {
+    id:'zoneBg',
+    beforeDraw(chart){
+      const {ctx:c, chartArea:{left,right,top,bottom}, scales:{y}} = chart;
+      if(!y) return;
+      const zones=[
+        {min:0,max:0.8,color:'rgba(74,144,226,0.08)'},
+        {min:0.8,max:1.3,color:'rgba(0,184,148,0.1)'},
+        {min:1.3,max:1.5,color:'rgba(225,112,85,0.1)'},
+        {min:1.5,max:2.5,color:'rgba(214,48,49,0.08)'}
+      ];
+      zones.forEach(z=>{
+        const yTop = y.getPixelForValue(z.max);
+        const yBot = y.getPixelForValue(z.min);
+        c.fillStyle = z.color;
+        c.fillRect(left, Math.max(yTop,top), right-left, Math.min(yBot,bottom)-Math.max(yTop,top));
+      });
+    }
+  };
+  const filtered = vals.filter(v=>v!==null);
+  const minV = filtered.length>0 ? Math.min(...filtered) : 0;
+  const data = {
+    labels,
+    datasets:[{
+      label:'ACWR',
+      data: vals.map(v=>v===null?null:v),
+      borderColor:'#0a3d62',
+      backgroundColor:'rgba(10,61,98,0.08)',
+      fill:true,
+      tension:0.3,
+      pointRadius:4,
+      pointBackgroundColor: vals.map(v=>v===null?'#ccc':acwrZone(v).color),
+      spanGaps:false
+    }]
+  };
+  const opts = {
+    responsive:true,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.raw!==null?'ACWR: '+c.raw.toFixed(2):'データなし'}},zoneBg},
+    scales:{
+      y:{min:Math.max(0,Math.floor((minV-0.3)*10)/10),max:2.5,grid:{color:'#eee'}},
+      x:{grid:{display:false},ticks:{font:{size:10}}}
+    }
+  };
+  if(canvasId==='acwr-chart'){
+    if(acwrChartInst){ acwrChartInst.destroy(); }
+    acwrChartInst = new Chart(ctx, {type:'line',data,options:opts,plugins:[zoneBgPlugin]});
+  } else {
+    if(detailAcwrChart){ detailAcwrChart.destroy(); }
+    detailAcwrChart = new Chart(ctx, {type:'line',data,options:opts,plugins:[zoneBgPlugin]});
+  }
+}
+function drawSRPEChart(canvasId, labels, vals, isNew){
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  const data = {
+    labels,
+    datasets:[{
+      label:'sRPE',
+      data:vals,
+      backgroundColor:'rgba(10,61,98,0.65)',
+      borderRadius:4,
+      borderSkipped:false
+    }]
+  };
+  const opts = {
+    responsive:true,
+    plugins:{legend:{display:false}},
+    scales:{
+      y:{grid:{color:'#eee'},beginAtZero:true},
+      x:{grid:{display:false},ticks:{font:{size:10}}}
+    }
+  };
+  if(canvasId==='srpe-chart'){
+    if(srpeChartInst){ srpeChartInst.destroy(); }
+    srpeChartInst = new Chart(ctx, {type:'bar',data,options:opts});
+  } else {
+    if(detailSrpeChart){ detailSrpeChart.destroy(); }
+    detailSrpeChart = new Chart(ctx, {type:'bar',data,options:opts});
+  }
+}
+function renderRecordTable(tbodyId, records, srpeData){
+  const today = todayStr();
+  const tbody = document.getElementById(tbodyId);
+  if(!records.length){ tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted);padding:16px">記録がありません</td></tr>'; return; }
+  tbody.innerHTML = records.map(r=>{
+    const srpe = r.srpe || (r.rpe||0)*(r.time||0);
+    const acwr = calcACWR(srpeData, r.date);
+    const zone = acwrZone(acwr);
+    const dateShort = r.date ? r.date.slice(5) : '';
+    return `<tr>
+      <td>${dateShort}</td>
+      <td>${typeLabels[r.type]||r.type||'-'}</td>
+      <td>${r.time||0}分</td>
+      <td>${r.rpe||0}</td>
+      <td>${srpe}</td>
+      <td style="color:${zone.color};font-weight:700">${acwr!==null?acwr.toFixed(2):'--'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ===== Input Screen =====
+function showInputScreen(targetPlayerId, targetPlayerName){
+  inputTargetPlayerId = targetPlayerId || currentPlayerId;
+  inputTargetPlayerName = targetPlayerName || (currentPlayerData ? currentPlayerData.name : '');
+  document.getElementById('input-player-name').textContent = inputTargetPlayerName;
+  const today = todayStr();
+  document.getElementById('input-date').value = today;
+  document.getElementById('input-date-bar').textContent = formatDate(today);
+  document.getElementById('input-date').addEventListener('change', function(){
+    document.getElementById('input-date-bar').textContent = formatDate(this.value);
+  });
+  // Reset form
+  document.querySelectorAll('.type-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('input-time').value = '';
+  document.getElementById('rpe-slider').value = 0;
+  updateRPE(0);
+  showScreen('screen-input');
+}
+function showInputForPlayer(){
+  if(detailPlayerId){
+    const p = allPlayersData.find(p=>p.id===detailPlayerId);
+    showInputScreen(detailPlayerId, p?p.name:'');
+  }
+}
+function selectType(type){
+  document.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('active', b.dataset.type===type));
+}
+function updateRPE(v){
+  v = parseInt(v);
+  document.getElementById('rpe-num').textContent = v;
+  document.getElementById('rpe-lbl').textContent = borgLabels[v]||'';
+  document.getElementById('rpe-val-label').textContent = v;
+  const time = parseInt(document.getElementById('input-time').value)||0;
+  document.getElementById('srpe-preview').textContent = v*time;
+}
+document.getElementById('input-time').addEventListener('change',function(){
+  updateRPE(parseInt(document.getElementById('rpe-slider').value)||0);
+});
+async function submitRecord(){
+  const date = document.getElementById('input-date').value;
+  const activeType = document.querySelector('.type-btn.active');
+  const type = activeType ? activeType.dataset.type : null;
+  const time = parseInt(document.getElementById('input-time').value)||0;
+  const rpe = parseInt(document.getElementById('rpe-slider').value)||0;
+  if(!date){ showToast('日付を選択してください','error'); return; }
+  if(!type){ showToast('参加種類を選択してください','error'); return; }
+  if(!time){ showToast('活動時間を選択してください','error'); return; }
+  const srpe = rpe * time;
+  const teamId = currentTeamId;
+  const pid = inputTargetPlayerId;
+  // Check existing record for same date
+  showSpinner();
+  try {
+    const existing = await db.collection(`teams/${teamId}/records`)
+      .where('playerId','==',pid)
+      .where('date','==',date)
+      .limit(1).get();
+    if(!existing.empty){
+      hideSpinner();
+      if(!confirm(`${date}のデータが既に存在します。上書きしますか？`)){return;}
+      showSpinner();
+      await existing.docs[0].ref.update({type,time,rpe,srpe,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    } else {
+      await db.collection(`teams/${teamId}/records`).add({
+        playerId: pid,
+        playerName: inputTargetPlayerName,
+        date, type, time, rpe, srpe,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    hideSpinner();
+    showToast('記録を保存しました','success');
+    if(currentRole==='player'){
+      await loadPlayerDashboard();
+    } else {
+      showScreen('screen-staff');
+      await loadStaffPlayerList();
+    }
+  } catch(e){
+    hideSpinner();
+    showToast('保存エラー: '+e.message,'error');
+  }
+}
+
+// ===== Staff Dashboard =====
+async function loadStaffDashboard(){
+  showScreen('screen-staff');
+  switchStaffTab('list');
+  try {
+    const teamDoc = await db.collection('teams').doc(currentTeamId).get();
+    const info = teamDoc.data()&&teamDoc.data().info;
+    document.getElementById('staff-team-name').textContent = info ? info.name||'' : '';
+  } catch(e){}
+  await loadStaffPlayerList();
+}
+async function loadStaffPlayerList(){
+  document.getElementById('staff-player-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">読み込み中...</div>';
+  try {
+    const playersSnap = await db.collection(`teams/${currentTeamId}/players`).get();
+    const players = playersSnap.docs.map(d=>({id:d.id,...d.data()}));
+    // Get recent records (last 28 days)
+    const since = subDays(todayStr(),28);
+    const recSnap = await db.collection(`teams/${currentTeamId}/records`)
+      .where('date','>=',since)
+      .get();
+    const allRecs = recSnap.docs.map(d=>d.data());
+    const today = todayStr();
+    const playerWithData = players.map(p=>{
+      const recs = allRecs.filter(r=>r.playerId===p.id);
+      const srpeData = buildRecordSRPE(recs);
+      const acwr = calcACWR(srpeData, today);
+      const zone = acwrZone(acwr);
+      const hasToday = recs.some(r=>r.date===today);
+      return {...p, acwr, zone, hasToday};
+    });
+    allPlayersData = playerWithData;
+    updateStaffStats(playerWithData);
+    renderStaffPlayerList(playerWithData);
+    renderManagePlayerList(players);
+  } catch(e){
+    document.getElementById('staff-player-list').innerHTML = `<div style="padding:20px;text-align:center;color:var(--red)">エラー: ${e.message}</div>`;
+  }
+}
+function updateStaffStats(players){
+  let red=0,orange=0,green=0,noInput=0;
+  players.forEach(p=>{
+    if(!p.hasToday){ noInput++; return; }
+    if(p.zone.cls==='red') red++;
+    else if(p.zone.cls==='orange') orange++;
+    else if(p.zone.cls==='green') green++;
+  });
+  document.getElementById('stat-total').textContent = players.length;
+  document.getElementById('stat-red').textContent = red;
+  document.getElementById('stat-orange').textContent = orange;
+  document.getElementById('stat-green').textContent = green;
+  document.getElementById('stat-no-input').textContent = noInput;
+}
+function renderStaffPlayerList(players){
+  const filter = staffFilter;
+  const search = (document.getElementById('player-search')||{}).value||'';
+  let filtered = players;
+  if(filter==='danger') filtered = filtered.filter(p=>p.zone&&p.zone.cls==='red');
+  else if(filter==='caution') filtered = filtered.filter(p=>p.zone&&p.zone.cls==='orange');
+  else if(filter==='optimal') filtered = filtered.filter(p=>p.zone&&p.zone.cls==='green');
+  else if(filter==='low') filtered = filtered.filter(p=>p.zone&&p.zone.cls==='blue');
+  else if(filter==='noinput') filtered = filtered.filter(p=>!p.hasToday);
+  if(search){ filtered = filtered.filter(p=>(p.name&&p.name.includes(search))||(String(p.number||'').includes(search))); }
+  filtered.sort((a,b)=>parseInt(a.number||0)-parseInt(b.number||0));
+  if(!filtered.length){ document.getElementById('staff-player-list').innerHTML='<div style="padding:20px;text-align:center;color:var(--muted)">該当選手なし</div>'; return; }
+  document.getElementById('staff-player-list').innerHTML = filtered.map(p=>{
+    const zone = p.zone||{cls:'gray',label:'--',color:'#aaa'};
+    const dotColor = zone.color||'#aaa';
+    return `<div class="player-item" onclick="showPlayerDetail('${p.id}')">
+      <div class="status-dot" style="background:${dotColor}"></div>
+      <div class="player-info">
+        <div class="player-name">${p.name||'--'}</div>
+        <div class="player-meta">#${p.number||'--'} ${p.position||''} ${p.hasToday?'':'／未入力'}</div>
+      </div>
+      <div class="player-acwr ${zone.cls}">${p.acwr!==null&&p.acwr!==undefined?p.acwr.toFixed(2):'--'}</div>
+    </div>`;
+  }).join('');
+}
+function renderManagePlayerList(players){
+  const el = document.getElementById('manage-player-list');
+  if(!players.length){ el.innerHTML='<div style="padding:12px;text-align:center;color:var(--muted)">登録選手なし</div>'; return; }
+  players.sort((a,b)=>parseInt(a.number||0)-parseInt(b.number||0));
+  el.innerHTML = players.map(p=>`
+    <div class="player-manage-item">
+      <div class="player-manage-info">
+        <div class="player-manage-name">${p.name||'--'}</div>
+        <div class="player-manage-meta">#${p.number||'--'} ${p.position||''}</div>
+      </div>
+      <button class="btn-danger" onclick="deletePlayer('${p.id}','${p.uid||''}','${(p.name||'').replace(/'/g,'')}')">削除</button>
+    </div>
+  `).join('');
+}
+function setFilter(f){
+  staffFilter = f;
+  document.querySelectorAll('.filter-tab').forEach(t=>t.classList.toggle('active',t.dataset.filter===f));
+  renderStaffPlayerList(allPlayersData);
+}
+function filterPlayers(){ renderStaffPlayerList(allPlayersData); }
+function switchStaffTab(tab){
+  ['list','manage','settings'].forEach(t=>{
+    document.getElementById(`staff-tab-${t}`).classList.toggle('hidden',t!==tab);
+    document.getElementById(`btab-${t}`).classList.toggle('active',t===tab);
+  });
+}
+
+// ===== Player Detail =====
+async function showPlayerDetail(playerId){
+  detailPlayerId = playerId;
+  showScreen('screen-detail');
+  document.getElementById('detail-skeleton').classList.remove('hidden');
+  document.getElementById('detail-content').classList.add('hidden');
+  const p = allPlayersData.find(x=>x.id===playerId);
+  document.getElementById('detail-player-name').textContent = p ? p.name : '選手詳細';
+  try {
+    const since = subDays(todayStr(),28);
+    const snap = await db.collection(`teams/${currentTeamId}/records`)
+      .where('playerId','==',playerId)
+      .where('date','>=',since)
+      .orderBy('date','desc')
+      .get();
+    const records = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const today = todayStr();
+    const srpeData = buildRecordSRPE(records);
+    const acwr = calcACWR(srpeData, today);
+    const zone = acwrZone(acwr);
+    document.getElementById('detail-acwr-value').textContent = acwr!==null?acwr.toFixed(2):'--';
+    document.getElementById('detail-acwr-value').style.color = zone.color;
+    document.getElementById('detail-acwr-label').textContent = zone.label;
+    const badge = document.getElementById('detail-zone-badge');
+    badge.textContent = zone.label; badge.style.background = zone.color;
+    document.getElementById('detail-gauge-pointer').style.left = gaugePos(acwr)+'%';
+    const labels=[], acwrVals=[], srpeVals=[];
+    for(let i=13;i>=0;i--){
+      const d = subDays(today, i);
+      labels.push(d.slice(5));
+      acwrVals.push(calcACWR(srpeData, d));
+      const dayS = srpeData.find(r=>r.date===d);
+      srpeVals.push(dayS?dayS.srpe:0);
+    }
+    drawACWRChart('detail-acwr-chart', labels, acwrVals, false);
+    drawSRPEChart('detail-srpe-chart', labels, srpeVals, false);
+    renderRecordTable('detail-table-body', records.slice(0,14), srpeData);
+  } catch(e){
+    showToast('データ取得エラー: '+e.message,'error');
+  }
+  document.getElementById('detail-skeleton').classList.add('hidden');
+  document.getElementById('detail-content').classList.remove('hidden');
+}
+function backToStaff(){
+  showScreen('screen-staff');
+}
+
+// ===== Manage Players =====
+async function addPlayer(){
+  const number = document.getElementById('new-number').value.trim();
+  const name = document.getElementById('new-name').value.trim();
+  const position = document.getElementById('new-position').value;
+  const pw = document.getElementById('new-password').value;
+  if(!number||!name||!pw){ showToast('必須項目を入力してください','error'); return; }
+  if(pw.length<6){ showToast('パスワードは6文字以上','error'); return; }
+  const teamCode = await getTeamCode(currentTeamId);
+  if(!teamCode){ showToast('チームコードが取得できません','error'); return; }
+  const email = `p${number}_${teamCode}@fsapp.internal`;
+  showSpinner();
+  try {
+    // Create auth user using admin SDK isn't available from client
+    // Use createUserWithEmailAndPassword then re-sign in as staff
+    const staffCred = {email: currentUser.email};
+    // We'll create via secondary auth instance approach
+    // Actually, we'll sign up then sign back in
+    const secondaryApp = firebase.initializeApp(firebaseConfig, 'secondaryAuth_'+Date.now());
+    const secondaryAuth = secondaryApp.auth();
+    const newCred = await secondaryAuth.createUserWithEmailAndPassword(email, pw);
+    const uid = newCred.user.uid;
+    await secondaryApp.delete();
+    // Save player doc
+    await db.collection(`teams/${currentTeamId}/players`).add({
+      name, number, position, email, uid,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    hideSpinner();
+    showToast(`${name} を追加しました`, 'success');
+    document.getElementById('new-number').value='';
+    document.getElementById('new-name').value='';
+    document.getElementById('new-password').value='';
+    await loadStaffPlayerList();
+  } catch(e){
+    hideSpinner();
+    showToast(firebaseErrorMsg(e.code)||e.message, 'error');
+  }
+}
+async function getTeamCode(teamId){
+  try {
+    const doc = await db.collection('teams').doc(teamId).get();
+    return doc.data()&&doc.data().info&&doc.data().info.code;
+  } catch(e){ return null; }
+}
+async function deletePlayer(playerId, uid, name){
+  if(!confirm(`${name} を削除しますか？記録も全て削除されます。`)){ return; }
+  showSpinner();
+  try {
+    // Delete records
+    const recSnap = await db.collection(`teams/${currentTeamId}/records`).where('playerId','==',playerId).get();
+    const batch = db.batch();
+    recSnap.docs.forEach(d=>batch.delete(d.ref));
+    batch.delete(db.collection(`teams/${currentTeamId}/players`).doc(playerId));
+    await batch.commit();
+    hideSpinner();
+    showToast(`${name} を削除しました`,'success');
+    await loadStaffPlayerList();
+  } catch(e){
+    hideSpinner();
+    showToast('削除エラー: '+e.message,'error');
+  }
+}
+async function bulkImport(){
+  const csv = document.getElementById('bulk-csv').value.trim();
+  if(!csv){ showToast('CSVを入力してください','error'); return; }
+  const lines = csv.split('\n').filter(l=>l.trim());
+  const teamCode = await getTeamCode(currentTeamId);
+  if(!teamCode){ showToast('チームコードが取得できません','error'); return; }
+  showSpinner();
+  let success=0, fail=0;
+  for(const line of lines){
+    const parts = line.split(',').map(s=>s.trim());
+    if(parts.length<4){ fail++; continue; }
+    const [number,name,position,pw] = parts;
+    if(!number||!name||!pw||pw.length<6){ fail++; continue; }
+    const email = `p${number}_${teamCode}@fsapp.internal`;
+    try {
+      const sa = firebase.initializeApp(firebaseConfig,'bulk_'+number+'_'+Date.now());
+      const saAuth = sa.auth();
+      const nc = await saAuth.createUserWithEmailAndPassword(email, pw);
+      const uid = nc.user.uid;
+      await sa.delete();
+      await db.collection(`teams/${currentTeamId}/players`).add({
+        name, number, position, email, uid,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      success++;
+    } catch(e){ fail++; }
+  }
+  hideSpinner();
+  showToast(`${success}件登録、${fail}件失敗`, fail>0?'warn':'success');
+  document.getElementById('bulk-csv').value='';
+  await loadStaffPlayerList();
+}
+
+// ===== Master =====
+async function loadMasterDashboard(){
+  showScreen('screen-master');
+  try {
+    const snap = await db.collection('teams').get();
+    const teams = snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(!teams.length){
+      document.getElementById('master-team-list').innerHTML='<div style="padding:12px;text-align:center;color:var(--muted)">チームなし</div>';
+      return;
+    }
+    // Get player counts
+    const items = await Promise.all(teams.map(async t=>{
+      const pSnap = await db.collection(`teams/${t.id}/players`).get();
+      return {...t, playerCount: pSnap.size};
+    }));
+    document.getElementById('master-team-list').innerHTML = items.map(t=>`
+      <div class="team-item" onclick="viewTeamAsStaff('${t.id}')">
+        <div class="team-info">
+          <div class="team-name">${(t.info&&t.info.name)||t.id}</div>
+          <div class="team-meta">コード: ${(t.info&&t.info.code)||'--'} ／ 選手: ${t.playerCount}人</div>
+        </div>
+        <div class="chevron">›</div>
+      </div>
+    `).join('');
+  } catch(e){
+    document.getElementById('master-team-list').innerHTML=`<div style="padding:12px;text-align:center;color:var(--red)">エラー: ${e.message}</div>`;
+  }
+}
+async function createTeam(){
+  const name = document.getElementById('new-team-name').value.trim();
+  const code = document.getElementById('new-team-code').value.trim().toLowerCase();
+  const staffEmail = document.getElementById('new-staff-email').value.trim();
+  const staffPw = document.getElementById('new-staff-pw').value;
+  if(!name||!code||!staffEmail||!staffPw){ showToast('すべての項目を入力してください','error'); return; }
+  if(staffPw.length<6){ showToast('パスワードは6文字以上','error'); return; }
+  // Check code uniqueness
+  showSpinner();
+  try {
+    const existing = await db.collection('teams').where('info.code','==',code).limit(1).get();
+    if(!existing.empty){ hideSpinner(); showToast('このチームコードは既に使用されています','error'); return; }
+    // Create staff account
+    const sa = firebase.initializeApp(firebaseConfig,'createTeam_'+Date.now());
+    const saAuth = sa.auth();
+    const sc = await saAuth.createUserWithEmailAndPassword(staffEmail, staffPw);
+    const staffUid = sc.user.uid;
+    await sa.delete();
+    // Create team doc
+    const teamRef = await db.collection('teams').add({
+      info: { name, code, masterUid: currentUser.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp() }
+    });
+    // Create staff doc
+    await db.collection(`teams/${teamRef.id}/staff`).doc(staffUid).set({
+      role: 'staff', email: staffEmail, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    hideSpinner();
+    showToast(`チーム「${name}」を作成しました`,'success');
+    document.getElementById('new-team-name').value='';
+    document.getElementById('new-team-code').value='';
+    document.getElementById('new-staff-email').value='';
+    document.getElementById('new-staff-pw').value='';
+    await loadMasterDashboard();
+  } catch(e){
+    hideSpinner();
+    showToast(firebaseErrorMsg(e.code)||e.message,'error');
+  }
+}
+async function viewTeamAsStaff(teamId){
+  currentTeamId = teamId;
+  await loadStaffDashboard();
+}
+
+// ===== Settings =====
+function showChangePassword(){
+  const form = document.getElementById('change-password-form');
+  form.classList.toggle('hidden');
+}
+async function changePassword(){
+  const pw1 = document.getElementById('new-pw-1').value;
+  const pw2 = document.getElementById('new-pw-2').value;
+  if(!pw1||!pw2){ showToast('パスワードを入力してください','error'); return; }
+  if(pw1!==pw2){ showToast('パスワードが一致しません','error'); return; }
+  if(pw1.length<6){ showToast('パスワードは6文字以上','error'); return; }
+  showSpinner();
+  try {
+    await currentUser.updatePassword(pw1);
+    hideSpinner();
+    showToast('パスワードを変更しました','success');
+    document.getElementById('new-pw-1').value='';
+    document.getElementById('new-pw-2').value='';
+    document.getElementById('change-password-form').classList.add('hidden');
+  } catch(e){
+    hideSpinner();
+    if(e.code==='auth/requires-recent-login'){
+      showToast('再ログインが必要です','error');
+    } else {
+      showToast(firebaseErrorMsg(e.code)||e.message,'error');
+    }
+  }
+}
+
+// ===== CSV Export =====
+function exportCSV(){
+  const players = allPlayersData;
+  if(!players.length){ showToast('選手データがありません','warn'); return; }
+  const rows = [['名前','背番号','ポジション','ACWR','ゾーン','今日入力']];
+  players.forEach(p=>{
+    rows.push([p.name||'',p.number||'',p.position||'',p.acwr!==null&&p.acwr!==undefined?p.acwr.toFixed(2):'--',p.zone?p.zone.label:'--',p.hasToday?'済':'未']);
+  });
+  downloadCSV(rows, 'players_'+todayStr()+'.csv');
+}
+async function exportAllCSV(){
+  showSpinner();
+  try {
+    const recSnap = await db.collection(`teams/${currentTeamId}/records`).orderBy('date','desc').get();
+    const rows = [['日付','選手名','参加種類','時間(分)','RPE','sRPE']];
+    recSnap.docs.forEach(d=>{
+      const r = d.data();
+      rows.push([r.date||'',r.playerName||'',typeLabels[r.type]||r.type||'',r.time||0,r.rpe||0,r.srpe||0]);
+    });
+    hideSpinner();
+    downloadCSV(rows, 'all_records_'+todayStr()+'.csv');
+  } catch(e){
+    hideSpinner();
+    showToast('エクスポートエラー: '+e.message,'error');
+  }
+}
+function downloadCSV(rows, filename){
+  const bom = '\uFEFF';
+  const content = bom + rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([content],{type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSVをダウンロードしました','success');
+}
+
+// ===== Network check =====
+window.addEventListener('online',()=>showToast('オンラインに戻りました','success'));
+window.addEventListener('offline',()=>showToast('オフライン：接続を確認してください','warn'));
+
+// ===== Auth State =====
+auth.onAuthStateChanged(async user => {
+  if(!user){
+    if(currentScreen!=='screen-login') showScreen('screen-login');
+    return;
+  }
+  // Already handled in login functions
+});
+
+// Enter key support
+document.getElementById('player-password').addEventListener('keydown',e=>{if(e.key==='Enter')loginPlayer();});
+document.getElementById('staff-password').addEventListener('keydown',e=>{if(e.key==='Enter')loginStaff();});
+</script>
+</body>
+</html>
