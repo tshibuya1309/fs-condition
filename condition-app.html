@@ -1299,6 +1299,7 @@ async function loadMasterDashboard(){
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <button class="btn-edit-team" onclick="openEditTeamModal('${t.id}','${(t.info&&t.info.name)||''}','${(t.info&&t.info.code)||''}')">✏️ 編集</button>
+          <button class="btn-danger" style="font-size:12px;padding:6px 10px" onclick="deleteTeam('${t.id}','${((t.info&&t.info.name)||t.id).replace(/'/g,'')}')">🗑️ 削除</button>
           <div class="chevron" onclick="viewTeamAsStaff('${t.id}')">›</div>
         </div>
       </div>
@@ -1343,6 +1344,31 @@ async function saveTeamEdit(){
   }
 }
 
+async function deleteTeam(teamId, teamName){
+  if(!confirm(`「${teamName}」を削除しますか？\n\n⚠️ 選手・記録データが全て削除されます。この操作は元に戻せません。`)){ return; }
+  showSpinner();
+  try {
+    const batch = db.batch();
+    // Delete all players
+    const playersSnap = await db.collection(`teams/${teamId}/players`).get();
+    playersSnap.docs.forEach(d => batch.delete(d.ref));
+    // Delete all records
+    const recsSnap = await db.collection(`teams/${teamId}/records`).get();
+    recsSnap.docs.forEach(d => batch.delete(d.ref));
+    // Delete all staff
+    const staffSnap = await db.collection(`teams/${teamId}/staff`).get();
+    staffSnap.docs.forEach(d => batch.delete(d.ref));
+    // Delete team doc
+    batch.delete(db.collection('teams').doc(teamId));
+    await batch.commit();
+    hideSpinner();
+    showToast(`「${teamName}」を削除しました`, 'success');
+    await loadMasterDashboard();
+  } catch(e){
+    hideSpinner();
+    showToast('削除エラー: ' + e.message, 'error');
+  }
+}
 async function createTeam(){
   const name = document.getElementById('new-team-name').value.trim();
   const code = document.getElementById('new-team-code').value.trim().toLowerCase();
