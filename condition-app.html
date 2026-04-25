@@ -524,6 +524,11 @@ tr:nth-child(even) td{background:#f7f9fc}
     <div class="input-group"><label>スタッフパスワード <span style="font-size:11px;color:var(--muted)">（任意）</span></label><input type="password" id="new-staff-pw" placeholder="パスワード（6文字以上）"></div>
     <button class="btn-primary" onclick="createTeam()">チームを作成</button>
   </div>
+  <div class="card">
+    <h2>🔒 セキュリティ移行</h2>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 8px">既存の選手・スタッフをuserTeamsに登録します（初回のみ実行・複数回押しても安全）</p>
+    <button class="btn-secondary" onclick="runSecurityMigration()">移行を実行</button>
+  </div>
   <div class="card" style="padding:0;overflow:hidden">
     <h2 style="padding:14px 16px 10px">チーム一覧</h2>
     <div id="master-team-list">
@@ -673,14 +678,13 @@ async function loginPlayer(){
   showSpinner();
   try {
     const cred = await auth.signInWithEmailAndPassword(email, pw);
-    // find teamId from teamCode（インデックス不要：全チーム取得してクライアント側で絞り込み）
-    const snap = await db.collection('teams').get();
-    const teamDoc = snap.docs.find(d => {
-      const info = d.data().info;
-      return info && info.code === teamCode;
-    });
-    if(!teamDoc){ throw new Error('チームが見つかりません'); }
-    currentTeamId = teamDoc.id;
+    // find teamId via userTeams (secure)
+    const utDoc = await db.collection('userTeams').doc(cred.user.uid).get();
+    if(!utDoc.exists){
+      await auth.signOut();
+      throw new Error('アカウント情報が未登録です。スタッフに連絡してください');
+    }
+    currentTeamId = utDoc.data().teamId;
     // find player doc
     const pSnap = await db.collection(`teams/${currentTeamId}/players`).get();
     const pDoc = pSnap.docs.find(d => d.data().uid === cred.user.uid);
@@ -712,15 +716,13 @@ async function loginStaff(){
       await loadMasterDashboard();
       return;
     }
-    // Find team staff
-    const teamsSnap = await db.collection('teams').get();
-    let foundTeam = null;
-    for(const tdoc of teamsSnap.docs){
-      const staffDoc = await db.collection(`teams/${tdoc.id}/staff`).doc(cred.user.uid).get();
-      if(staffDoc.exists){ foundTeam = tdoc; break; }
+    // Find team via userTeams (secure)
+    const utDoc = await db.collection('userTeams').doc(cred.user.uid).get();
+    if(!utDoc.exists || utDoc.data().role !== 'staff'){
+      await auth.signOut();
+      throw new Error('スタッフ権限が見つかりません');
     }
-    if(!foundTeam){ throw new Error('スタッフ権限が見つかりません'); }
-    currentTeamId = foundTeam.id;
+    currentTeamId = utDoc.data().teamId;
     currentRole = 'staff';
     hideSpinner();
     await loadStaffDashboard();
@@ -1152,6 +1154,11 @@ async function addPlayer(){
       name, number, position, email, uid,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+    // Register team membership for security
+    await db.collection('userTeams').doc(uid).set({
+      teamId: currentTeamId, role: 'player',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
     hideSpinner();
     showToast(`${name} を追加しました`, 'success');
     document.getElementById('new-number').value='';
@@ -1216,6 +1223,11 @@ async function doResetPlayerPassword(){
     }
     // Update uid in Firestore player doc
     await db.collection(`teams/${currentTeamId}/players`).doc(playerId).update({ uid, email });
+    // Ensure userTeams entry exists for security
+    await db.collection('userTeams').doc(uid).set({
+      teamId: currentTeamId, role: 'player',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, {merge: true});
     hideSpinner();
     closeResetPwModal();
     showToast('パスワードを再設定しました。選手に新しいパスワードを伝えてください。','success');
@@ -1234,6 +1246,7 @@ async function deletePlayer(playerId, uid, name){
     const batch = db.batch();
     recSnap.docs.forEach(d=>batch.delete(d.ref));
     batch.delete(db.collection(`teams/${currentTeamId}/players`).doc(playerId));
+    if(uid){ batch.delete(db.collection('userTeams').doc(uid)); }
     await batch.commit();
     hideSpinner();
     showToast(`${name} を削除しました`,'success');
@@ -1265,6 +1278,10 @@ async function bulkImport(){
       await sa.delete();
       await db.collection(`teams/${currentTeamId}/players`).add({
         name, number, position, email, uid,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      await db.collection('userTeams').doc(uid).set({
+        teamId: currentTeamId, role: 'player',
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       success++;
@@ -1344,6 +1361,43 @@ async function saveTeamEdit(){
   }
 }
 
+async function runSecurityMigration(){
+  if(!confirm('全チームの選手・スタッフのセキュリティ情報を登録しますか？\n（複数回押しても安全です）')){ return; }
+  showSpinner();
+  try {
+    let count = 0;
+    const teamsSnap = await db.collection('teams').get();
+    for(const tdoc of teamsSnap.docs){
+      const teamId = tdoc.id;
+      // Players
+      const pSnap = await db.collection(`teams/${teamId}/players`).get();
+      for(const p of pSnap.docs){
+        const uid = p.data().uid;
+        if(uid){
+          await db.collection('userTeams').doc(uid).set({
+            teamId, role: 'player',
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          }, {merge: true});
+          count++;
+        }
+      }
+      // Staff
+      const sSnap = await db.collection(`teams/${teamId}/staff`).get();
+      for(const s of sSnap.docs){
+        await db.collection('userTeams').doc(s.id).set({
+          teamId, role: 'staff',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, {merge: true});
+        count++;
+      }
+    }
+    hideSpinner();
+    showToast(`${count}人のセキュリティ情報を登録しました`,'success');
+  } catch(e){
+    hideSpinner();
+    showToast('移行エラー: '+e.message,'error');
+  }
+}
 async function deleteTeam(teamId, teamName){
   if(!confirm(`「${teamName}」を削除しますか？\n\n⚠️ 選手・記録データが全て削除されます。この操作は元に戻せません。`)){ return; }
   showSpinner();
@@ -1351,13 +1405,20 @@ async function deleteTeam(teamId, teamName){
     const batch = db.batch();
     // Delete all players
     const playersSnap = await db.collection(`teams/${teamId}/players`).get();
-    playersSnap.docs.forEach(d => batch.delete(d.ref));
+    playersSnap.docs.forEach(d => {
+      batch.delete(d.ref);
+      const puid = d.data().uid;
+      if(puid){ batch.delete(db.collection('userTeams').doc(puid)); }
+    });
     // Delete all records
     const recsSnap = await db.collection(`teams/${teamId}/records`).get();
     recsSnap.docs.forEach(d => batch.delete(d.ref));
     // Delete all staff
     const staffSnap = await db.collection(`teams/${teamId}/staff`).get();
-    staffSnap.docs.forEach(d => batch.delete(d.ref));
+    staffSnap.docs.forEach(d => {
+      batch.delete(d.ref);
+      batch.delete(db.collection('userTeams').doc(d.id));
+    });
     // Delete team doc
     batch.delete(db.collection('teams').doc(teamId));
     await batch.commit();
@@ -1396,6 +1457,10 @@ async function createTeam(){
       await sa.delete();
       await db.collection(`teams/${teamRef.id}/staff`).doc(staffUid).set({
         role: 'staff', email: staffEmail, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      await db.collection('userTeams').doc(staffUid).set({
+        teamId: teamRef.id, role: 'staff',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     }
     hideSpinner();
